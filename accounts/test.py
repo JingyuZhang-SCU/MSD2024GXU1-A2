@@ -1,23 +1,52 @@
-# accounts/models.py
+# auth.py
+from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
-from django.db import models
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import json
 
-class Profile(models.Model):
-    ROLE_CHOICES = (
-        ('doctor', '医生'),
-        ('patient', '患者'),
-    )
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
-    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='patient')
+@csrf_exempt
+def register_user(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            username = data['username']
+            password = data['password']
+            role = data.get('role', 'patient')  # 默认角色为患者
 
-    def __str__(self):
-        return f"{self.user.username} - {self.role}"
+            if User.objects.filter(username=username).exists():
+                return JsonResponse({'error': '用户名已存在'}, status=400)
 
-# 确保在User创建时自动创建Profile
-from django.db.models.signals import post_save
-from django.dispatch import receiver
+            user = User.objects.create_user(username=username, password=password)
+            user.profile.role = role  # 假设Profile模型扩展了User模型
+            user.profile.save()
 
-@receiver(post_save, sender=User)
-def create_user_profile(sender, instance, created, **kwargs):
-    if created:
-        Profile.objects.create(user=instance)
+            return JsonResponse({'message': '注册成功'}, status=201)
+        except KeyError:
+            return JsonResponse({'error': '缺少必要字段'}, status=400)
+    return JsonResponse({'error': '仅支持POST请求'}, status=405)
+
+@csrf_exempt
+def login_user_view(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            username = data['username']
+            password = data['password']
+
+            user = authenticate(request, username=username, password=password)
+            if user is not None:
+                login(request, user)
+                return JsonResponse({'message': '登录成功'}, status=200)
+            else:
+                return JsonResponse({'error': '无效的凭证'}, status=401)
+        except KeyError:
+            return JsonResponse({'error': '缺少必要字段'}, status=400)
+    return JsonResponse({'error': '仅支持POST请求'}, status=405)
+
+@csrf_exempt
+def logout_user_view(request):
+    if request.method == 'POST':
+        logout(request)
+        return JsonResponse({'message': '登出成功'}, status=200)
+    return JsonResponse({'error': '仅支持POST请求'}, status=405)
